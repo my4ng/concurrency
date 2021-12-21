@@ -51,10 +51,10 @@ bool
 validate_transaction(Transaction *transaction, BankAccountData *bankAccountData1, BankAccountData *bankAccountData2,
                      uint64_t startTime, ValidationList *validationList, bool isBankAccount1Updated,
                      bool isBankAccount2Updated, WriteBackContainer *writeBackContainer) {
-    bool isValidated = false;
+    bool isValidated;
     uint64_t validationListIndex;
-    if (read_validate(bankAccountData1, bankAccountData2, startTime) &&
-        serialisability_validate(bankAccountData1, bankAccountData2, startTime, validationList)) {
+    if ((isValidated = read_validate(bankAccountData1, bankAccountData2, startTime) &&
+        serialisability_validate(bankAccountData1, bankAccountData2, startTime, validationList))) {
         ValidationEntry validationEntry = {.transaction = transaction,
                 .bankAccount1 = (bankAccountData1 != NULL && isBankAccount1Updated) ? bankAccountData1->bankAccount
                                                                                     : NULL,
@@ -67,21 +67,45 @@ validate_transaction(Transaction *transaction, BankAccountData *bankAccountData1
         g_array_append_val(validationList->arrayList, validationEntry);
         pthread_mutex_unlock(&(validationList->validationMutex));
 
-        WriteBackEntry writeBackEntry = {.bankAccountData1 = bankAccountData1, .bankAccountData2 = bankAccountData2,
+        WriteBackEntry writeBackEntry = {.bankAccountData1 = isBankAccount1Updated ? bankAccountData1 : NULL,
+                                         .bankAccountData2 = isBankAccount2Updated ? bankAccountData2 : NULL,
                                          .validationListIndex = validationListIndex};
         g_queue_push_tail(writeBackContainer->writeBackQueue, &writeBackEntry);
         sem_post(&(writeBackContainer->writeBackSemaphore));
-
-        isValidated = true;
+    } else {
+        free(bankAccountData1);
+        free(bankAccountData2);
     }
     return isValidated;
 }
 
-void write_back(WriteBackContainer *writeBackContainer, const bool *isStopped) {
+void write_back(WriteBackContainer *writeBackContainer, ValidationList *validationList, const bool *isStopped) {
     while (!(*isStopped)) {
         sem_wait(&(writeBackContainer->writeBackSemaphore));
         WriteBackEntry *writeBackEntry = g_queue_pop_head(writeBackContainer->writeBackQueue);
+        uint64_t validationTimestamp = g_array_index(validationList->arrayList, ValidationEntry, writeBackEntry->validationListIndex).validationTimestamp;
 
-        writeBack
+        if (writeBackEntry->bankAccountData1 != NULL) {
+            pthread_mutex_lock(&(writeBackEntry->bankAccountData1->bankAccount->mutex));
+            // TODO: Add more changes than balance
+            writeBackEntry->bankAccountData1->bankAccount->balance = writeBackEntry->bankAccountData1->balance;
+            g_hash_table_insert(writeBackContainer->writeBackHashTable,
+                                writeBackEntry->bankAccountData1->bankAccount, &validationTimestamp);
+            pthread_mutex_unlock(&(writeBackEntry->bankAccountData1->bankAccount->mutex));
+        }
+        if (writeBackEntry->bankAccountData2 != NULL) {
+            pthread_mutex_lock(&(writeBackEntry->bankAccountData2->bankAccount->mutex));
+            writeBackEntry->bankAccountData2->bankAccount->balance = writeBackEntry->bankAccountData2->balance;
+            g_hash_table_insert(writeBackContainer->writeBackHashTable,
+                                writeBackEntry->bankAccountData2->bankAccount, &validationTimestamp);
+            pthread_mutex_unlock(&(writeBackEntry->bankAccountData2->bankAccount->mutex));
+        }
+
+        pthread_mutex_lock(&(validationList->validationMutex));
+        g_array_index(validationList->arrayList, ValidationEntry, writeBackEntry->validationListIndex).hasWrittenBack = true;
+        pthread_mutex_unlock(&(validationList->validationMutex));
+
+        free(writeBackEntry->bankAccountData1);
+        free(writeBackEntry->bankAccountData2);
     }
 }
