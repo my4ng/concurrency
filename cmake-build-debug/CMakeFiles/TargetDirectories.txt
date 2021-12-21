@@ -1,0 +1,3 @@
+/home/michael/code/c/concurrency/cmake-build-debug/CMakeFiles/concurrency.dir
+/home/michael/code/c/concurrency/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/michael/code/c/concurrency/cmake-build-debug/CMakeFiles/rebuild_cache.dir
