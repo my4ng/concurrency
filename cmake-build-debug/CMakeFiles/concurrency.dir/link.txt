@@ -1,1 +1,0 @@
-/usr/bin/cc -g CMakeFiles/concurrency.dir/main.c.o CMakeFiles/concurrency.dir/occ.c.o CMakeFiles/concurrency.dir/operation.c.o -o concurrency  -lglib-2.0 -lpthread 
