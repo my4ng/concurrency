@@ -65,7 +65,10 @@ int main() {
 
     GArray *g = g_array_new(false, false, sizeof(struct Test));
     g_array_append_val(g, t);
-    g_array_index(g, struct Test, 0).a = 7;
+
+    struct Test p;
+    p = g_array_index(g, struct Test, 0);
+
 
 
     return 0;

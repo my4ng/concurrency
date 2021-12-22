@@ -3,7 +3,7 @@ project(concurrency C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(concurrency main.c occ.c operation.c bank_account.h operation.h occ.h)
+add_executable(concurrency main.c occ.c operation.c bank_account.h operation.h occ.h bank_account.c transaction.c transaction.h)
 
 find_package(PkgConfig REQUIRED)
 pkg_search_module(GLIB REQUIRED glib-2.0)

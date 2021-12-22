@@ -1,11 +1,9 @@
 #ifndef CONCURRENCY_OPERATION_H
 #define CONCURRENCY_OPERATION_H
 
-#include "bank_account.h"
+#include "occ.h"
 
-BankAccount *init_account(uint64_t, int64_t, Transaction *);
-int credit_account(BankAccount *, uint64_t, Transaction **);
-int debit_account(BankAccount *, uint64_t, Transaction **);
-int destroy_account(BankAccount *);
+bool credit_account(BankAccountData *bankAccountData, uint64_t amount);
+bool debit_account(BankAccountData *bankAccountData, uint64_t amount);
 
 #endif //CONCURRENCY_OPERATION_H
