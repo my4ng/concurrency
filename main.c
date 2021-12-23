@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <glib.h>
 #include <stdbool.h>
+#include "transaction.h"
 
 /*
 int insert_transaction(BankAccount *bankAccount, Transaction *transaction) {
@@ -53,22 +54,21 @@ int pay_account(BankAccount *bankAccountFrom, BankAccount *bankAccountTo, uint64
 }
 */
 
+int main(void) {
 
-struct Test {
-    int a;
-    struct Test* b;
-};
+    BankAccount *ba = init_account(0, 1000000, 0);
+    BankAccount *ba1 = init_account(1, 1000, 0);
 
-int main() {
-    struct Test t = {1, NULL};
-    struct Test u = {2, NULL};
+    OCCContainer occContainer;
+    occContainer.validationList = validationList_default;
+    occContainer.validationList.arrayList = get_new_arrayList();
+    occContainer.writeBackAsyncQueue = get_new_async_queue();
 
-    GArray *g = g_array_new(false, false, sizeof(struct Test));
-    g_array_append_val(g, t);
+    pay_account(ba, ba1, 1000, &occContainer, 10);
+    pay_account(ba1, ba, 3000, &occContainer, 10);
 
-    struct Test p;
-    p = g_array_index(g, struct Test, 0);
-
+    free(ba);
+    free(ba1);
 
 
     return 0;

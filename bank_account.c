@@ -2,10 +2,11 @@
 #include "bank_account.h"
 
 
-BankAccount *init_account(uint64_t id, int64_t balance) {
+BankAccount *init_account(uint64_t id, int64_t balance, uint64_t writeBackTimestamp) {
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     BankAccount *ba = malloc(sizeof(BankAccount));
-    if (ba != NULL) *ba = (BankAccount) {.id = id, .balance = balance, .mutex = mutex};
+    if (ba != NULL)
+        *ba = (BankAccount) {.id = id, .balance = balance, .writeBackMutex = mutex, .writeBackTimestamp = writeBackTimestamp};
     return ba;
 }
 

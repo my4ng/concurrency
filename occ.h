@@ -2,7 +2,6 @@
 #define CONCURRENCY_OCC_H
 
 #include <stdbool.h>
-#include <semaphore.h>
 #include "bank_account.h"
 #include "glib.h"
 
@@ -23,6 +22,10 @@ typedef struct ValidationList_t {
     uint64_t timeStamp;
 } ValidationList;
 
+ValidationList validationList_default;
+
+GArray *get_new_arrayList(void);
+
 typedef struct BankAccountData_t {
     BankAccount *bankAccount;
     uint64_t copyTimestamp;
@@ -37,22 +40,22 @@ typedef struct WriteBackEntry_t {
     uint64_t validationListIndex;
 } WriteBackEntry;
 
-typedef struct WriteBackContainer_t {
-    GHashTable *writeBackHashTable;
-    GQueue *writeBackQueue;
-    sem_t writeBackSemaphore;
-} WriteBackContainer;
-
 typedef struct OCCContainer_t {
     ValidationList validationList;
-    WriteBackContainer writeBackContainer;
+    GAsyncQueue *writeBackAsyncQueue;
 } OCCContainer;
 
-BankAccountData get_shadow_copy(BankAccount *bankAccount, WriteBackContainer *writeBackContainer);
+GAsyncQueue *get_new_async_queue(void);
+
+BankAccountData *get_shadow_copy(BankAccount *bankAccount);
+
 uint64_t get_start_time(ValidationList *validationList);
-bool validate_transaction(Transaction *transaction, BankAccountData *bankAccountData1, BankAccountData *bankAccountData2,
-                          uint64_t startTime, ValidationList *validationList, bool isBankAccount1Updated,
-                          bool isBankAccount2Updated, WriteBackContainer *writeBackContainer);
-void write_back(WriteBackContainer *writeBackContainer, ValidationList *validationList, const bool *isStopped);
+
+bool
+validate_transaction(Transaction *transaction, BankAccountData *bankAccountData1, BankAccountData *bankAccountData2,
+                     uint64_t startTime, ValidationList *validationList, bool isBankAccount1Updated,
+                     bool isBankAccount2Updated, GAsyncQueue *writeBackAsyncQueue);
+
+void write_back(GAsyncQueue *writeBackAsyncQueue, ValidationList *validationList, const bool *isStopped);
 
 #endif //CONCURRENCY_OCC_H

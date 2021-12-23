@@ -19,10 +19,11 @@ typedef struct Transaction_t {
 typedef struct BankAccount_t {
     uint64_t id;
     int64_t balance;
-    pthread_mutex_t mutex;
+    uint64_t writeBackTimestamp;
+    pthread_mutex_t writeBackMutex;
 } BankAccount;
 
-BankAccount *init_account(uint64_t id, int64_t balance);
+BankAccount *init_account(uint64_t id, int64_t balance, uint64_t writeBackTimestamp);
 void free_account(BankAccount *bankAccount);
 
 #endif //CONCURRENCY_BANK_ACCOUNT_H
