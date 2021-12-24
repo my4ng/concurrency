@@ -90,23 +90,48 @@ bool serialisability_validate(BankAccountData *bankAccountData1, BankAccountData
     return true;
 }
 
-bool
-validate_transaction(Transaction *transaction, BankAccountData *bankAccountData1, BankAccountData *bankAccountData2,
-                     uint64_t startTime, ValidationList *validationList, bool isBankAccount1Updated,
-                     bool isBankAccount2Updated, GAsyncQueue *writeBackAsyncQueue) {
+bool submit_validation_request(ValidationRequest *validationRequest, GAsyncQueue *validationAsyncQueue) {
+    bool result;
+    pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_cond_t conditionVariable = PTHREAD_COND_INITIALIZER;
+    ValidationResult validationResult = {.validationRequest = validationRequest, .result = &result,
+            .resultMutex = &mutex, .resultConditionVariable = &conditionVariable};
+
+    pthread_mutex_lock(&mutex);
+    g_async_queue_push(validationAsyncQueue, &validationResult);
+    pthread_cond_wait(&conditionVariable, &mutex);
+    pthread_mutex_unlock(&mutex);
+
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&conditionVariable);
+    return result;
+}
+
+void validate_transaction(ValidationList *validationList, GAsyncQueue *validationAsyncQueue,
+                          GAsyncQueue *writeBackAsyncQueue) {
+
+    ValidationResult validationResult = *((ValidationResult *) g_async_queue_pop(validationAsyncQueue));
     uint64_t validationListIndex;
 
     read_lock(validationList);
-    bool isValidated = read_validate(bankAccountData1, bankAccountData2, startTime) &&
-                       serialisability_validate(bankAccountData1, bankAccountData2, startTime, validationList);
+    bool isValidated = read_validate(validationResult.validationRequest->bankAccountData1,
+                                     validationResult.validationRequest->bankAccountData2,
+                                     validationResult.validationRequest->startTime) &&
+                       serialisability_validate(validationResult.validationRequest->bankAccountData1,
+                                                validationResult.validationRequest->bankAccountData2,
+                                                validationResult.validationRequest->startTime, validationList);
     read_unlock(validationList);
 
     if (isValidated) {
-        ValidationEntry validationEntry = {.transaction = transaction,
-                .bankAccount1 = (bankAccountData1 != NULL && isBankAccount1Updated) ? bankAccountData1->bankAccount
-                                                                                    : NULL,
-                .bankAccount2 = (bankAccountData2 != NULL && isBankAccount2Updated) ? bankAccountData2->bankAccount
-                                                                                    : NULL,
+        ValidationEntry validationEntry = {.transaction = validationResult.validationRequest->transaction,
+                .bankAccount1 = (validationResult.validationRequest->bankAccountData1 != NULL &&
+                                 validationResult.validationRequest->isBankAccount1Updated)
+                                ? validationResult.validationRequest->bankAccountData1->bankAccount
+                                : NULL,
+                .bankAccount2 = (validationResult.validationRequest->bankAccountData2 != NULL &&
+                                 validationResult.validationRequest->isBankAccount2Updated)
+                                ? validationResult.validationRequest->bankAccountData2->bankAccount
+                                : NULL,
                 .hasWrittenBack = false};
         write_lock(validationList);
         validationEntry.validationTimestamp = ++(validationList->timeStamp);
@@ -114,15 +139,22 @@ validate_transaction(Transaction *transaction, BankAccountData *bankAccountData1
         g_array_append_val(validationList->arrayList, validationEntry);
         write_unlock(validationList);
 
-        WriteBackEntry writeBackEntry = {.bankAccountData1 = isBankAccount1Updated ? bankAccountData1 : NULL,
-                .bankAccountData2 = isBankAccount2Updated ? bankAccountData2 : NULL,
+        WriteBackEntry writeBackEntry = {.bankAccountData1 = validationResult.validationRequest->isBankAccount1Updated
+                                                             ? validationResult.validationRequest->bankAccountData1
+                                                             : NULL,
+                .bankAccountData2 = validationResult.validationRequest->isBankAccount2Updated
+                                    ? validationResult.validationRequest->bankAccountData2 : NULL,
                 .validationListIndex = validationListIndex};
         g_async_queue_push(writeBackAsyncQueue, &writeBackEntry);
     } else {
-        free(bankAccountData1);
-        free(bankAccountData2);
+        free(validationResult.validationRequest->bankAccountData1);
+        free(validationResult.validationRequest->bankAccountData2);
     }
-    return isValidated;
+
+    pthread_mutex_lock(validationResult.resultMutex);
+    *(validationResult.result) = isValidated;
+    pthread_mutex_unlock(validationResult.resultMutex);
+    pthread_cond_signal(validationResult.resultConditionVariable);
 }
 
 void write_back(GAsyncQueue *writeBackAsyncQueue, ValidationList *validationList, const bool *isStopped) {
