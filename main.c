@@ -2,6 +2,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #include "transaction.h"
+#include "additive_list.h"
+
 
 OCCContainer occContainer;
 BankAccount *bankAccount;
@@ -44,10 +46,6 @@ void *write_back() {
 
 int main(void) {
 
-    uint16_t k = -10;
-    k += 10;
-    printf("%d", k);
-
     /*
     printf("BankAccount: %ld\n", sizeof(WriteBackEntry));
 
@@ -82,6 +80,20 @@ int main(void) {
     free_account(bankAccount);
     free_account(bankAccount1);
     */
+
+    AdditiveList additiveList;
+    additive_list_init(&additiveList, sizeof(int), 16, 16, 0);
+
+    for (int i = 0; i < 35; i++) {
+        additive_list_add(&additiveList, &i);
+    }
+    additive_list_remove_before(&additiveList, 33);
+    for (int i = 0; i < 35; i++) {
+        additive_list_add(&additiveList, &i);
+    }
+    printf("%d", *(int *)additive_list_get(&additiveList, 69));
+
+    additive_list_free(&additiveList);
 
     return 0;
 }
