@@ -28,6 +28,8 @@ int additive_list_add(AdditiveList *additiveList, void *data);
 
 void *additive_list_get(AdditiveList *additiveList, uint64_t offsetIndex);
 
+int additive_list_get_copy(AdditiveList *additiveList, uint64_t offsetIndex, void *copy);
+
 void additive_list_remove_before(AdditiveList *additiveList, uint64_t offsetIndex);
 
 void additive_list_free(AdditiveList *additiveList);

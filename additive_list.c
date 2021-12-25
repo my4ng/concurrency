@@ -11,12 +11,12 @@ char **get_array_pointer(AdditiveList *additiveList, uint16_t blockNumber) {
 
 int additive_list_init(AdditiveList *additiveList, uint16_t elementSize, uint16_t blockMultiplier, uint16_t maxBlock,
                        uint64_t offset) {
+    additiveList->blockArrayPointer = malloc(maxBlock * sizeof(char *));
+    if (additiveList->blockArrayPointer == NULL) return 1;
+
     *additiveList = (AdditiveList) {.elementSize = elementSize, .blockMultiplier = blockMultiplier,
             .maxBlock = maxBlock, .offset = offset, .currentBlockNumber = -1,
             .currentBlockStartIndex = -blockMultiplier, .listLength = 0, .arrayOffset = 0};
-
-    additiveList->blockArrayPointer = malloc(maxBlock * sizeof(char *));
-    if (additiveList->blockArrayPointer == NULL) return 1;
     return 0;
 }
 
@@ -47,6 +47,8 @@ int additive_list_add(AdditiveList *additiveList, void *data) {
 }
 
 // does not create a copy of the returned element
+// can return a copy if a void * pointer is provided and use memcpy
+// if used in MRSW then no need since
 
 void *additive_list_get(AdditiveList *additiveList, uint64_t offsetIndex) {
 
@@ -57,7 +59,18 @@ void *additive_list_get(AdditiveList *additiveList, uint64_t offsetIndex) {
            ((index % additiveList->blockMultiplier) * additiveList->elementSize);
 }
 
+int additive_list_get_copy(AdditiveList *additiveList, uint64_t offsetIndex, void *copy) {
+    uint32_t index = offsetIndex - additiveList->offset;
+    if (index >= additiveList->listLength) return 1;
+
+    memcpy(copy, *get_array_pointer(additiveList, index / additiveList->blockMultiplier) +
+                 ((index % additiveList->blockMultiplier) * additiveList->elementSize), additiveList->elementSize);
+    return 0;
+}
+
 // remove all elements that are in blocks before the offset index
+// for validation list, safe to remove all elements before the
+
 void additive_list_remove_before(AdditiveList *additiveList, uint64_t offsetIndex) {
 
     uint16_t blockIndex = (offsetIndex - additiveList->offset) / additiveList->blockMultiplier;

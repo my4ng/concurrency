@@ -91,6 +91,9 @@ int main(void) {
     for (int i = 0; i < 35; i++) {
         additive_list_add(&additiveList, &i);
     }
+    int k;
+    additive_list_get_copy(&additiveList, 69, &k);
+    printf("%d", k);
     printf("%d", *(int *)additive_list_get(&additiveList, 69));
 
     additive_list_free(&additiveList);
