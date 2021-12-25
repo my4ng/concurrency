@@ -11,12 +11,11 @@ char **get_array_pointer(AdditiveList *additiveList, uint16_t blockNumber) {
 
 int additive_list_init(AdditiveList *additiveList, uint16_t elementSize, uint16_t blockMultiplier, uint16_t maxBlock,
                        uint64_t offset) {
-    additiveList->blockArrayPointer = malloc(maxBlock * sizeof(char *));
-    if (additiveList->blockArrayPointer == NULL) return 1;
-
     *additiveList = (AdditiveList) {.elementSize = elementSize, .blockMultiplier = blockMultiplier,
             .maxBlock = maxBlock, .offset = offset, .currentBlockNumber = -1,
             .currentBlockStartIndex = -blockMultiplier, .listLength = 0, .arrayOffset = 0};
+    additiveList->blockArrayPointer = malloc(maxBlock * sizeof(char *));
+    if (additiveList->blockArrayPointer == NULL) return 1;
     return 0;
 }
 

@@ -3,11 +3,10 @@
 #include "circular_queue.h"
 
 int circular_queue_init(CircularQueue *circularQueue, uint32_t elementSize, uint32_t size) {
-    circularQueue->buffer = malloc(elementSize * size);
-    if (circularQueue->buffer == NULL) return 1;
-
     *circularQueue = (CircularQueue) {.in = 0, .out = 0, .elementSize = elementSize, .size = size,
                                       .pushMutex = PTHREAD_MUTEX_INITIALIZER, .popMutex = PTHREAD_MUTEX_INITIALIZER};
+    circularQueue->buffer = malloc(elementSize * size);
+    if (circularQueue->buffer == NULL) return 1;
     sem_init(&circularQueue->spaceSemaphore, 0, size);
     sem_init(&circularQueue->itemSemaphore, 0, 0);
     return 0;

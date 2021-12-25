@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include "transaction.h"
 #include "additive_list.h"
-
+#include "circular_queue.h"
 
 OCCContainer occContainer;
 BankAccount *bankAccount;
@@ -97,6 +97,23 @@ int main(void) {
     printf("%d", *(int *)additive_list_get(&additiveList, 69));
 
     additive_list_free(&additiveList);
+
+    CircularQueue circularQueue;
+    circular_queue_init(&circularQueue, sizeof(int), 64);
+
+    int a = 0;
+    int b = 1;
+
+    circular_queue_push(&circularQueue, &a);
+    circular_queue_pop(&circularQueue, &a);
+    circular_queue_push(&circularQueue, &b);
+    circular_queue_pop(&circularQueue, &b);
+
+    printf("%d", a);
+    printf("%d", b);
+
+
+    circular_queue_free(&circularQueue);
 
     return 0;
 }
