@@ -2,6 +2,7 @@
 #define CONCURRENCY_OCC_H
 
 #include <stdbool.h>
+#include <stdatomic.h>
 #include "bank_account.h"
 #include "glib.h"
 
@@ -70,8 +71,9 @@ uint64_t get_start_time(ValidationList *validationList);
 
 bool submit_validation_request(ValidationRequest *validationRequest, GAsyncQueue *validationAsyncQueue);
 
-void validate_transaction(ValidationList *validationList, GAsyncQueue *validationAsyncQueue, GAsyncQueue *writeBackAsyncQueue);
+void validate_transaction(ValidationList *validationList, GAsyncQueue *validationAsyncQueue,
+                          GAsyncQueue *writeBackAsyncQueue);
 
-void write_back(GAsyncQueue *writeBackAsyncQueue, ValidationList *validationList, const bool *isStopped);
+void write_back_transaction(ValidationList *validationList, GAsyncQueue *writeBackAsyncQueue);
 
 #endif //CONCURRENCY_OCC_H

@@ -5,7 +5,7 @@
 ValidationList validationList_default = {.writeMutex = PTHREAD_MUTEX_INITIALIZER, .readMutex = PTHREAD_MUTEX_INITIALIZER,
         .turnMutex = PTHREAD_MUTEX_INITIALIZER, .numberReaders = 0, .timeStamp = 0};
 
-GArray *get_new_arrayList(void) { return g_array_new(false, false, sizeof(ValidationList)); }
+GArray *get_new_arrayList(void) { return g_array_new(false, false, sizeof(ValidationEntry)); }
 
 GAsyncQueue *get_new_async_queue(void) { return g_async_queue_new(); }
 
@@ -83,9 +83,9 @@ bool serialisability_validate(BankAccountData *bankAccountData1, BankAccountData
 
     for (int64_t i = (int64_t) validationList->arrayList->len - 1; i >= 0; i--) {
         validationEntry = &g_array_index(validationList->arrayList, ValidationEntry, i);
+        if (startTime == validationEntry->validationTimestamp) break;
         if (bankAccountData1 != NULL && bankAccountData1->bankAccount == validationEntry->bankAccount1) return false;
         if (bankAccountData2 != NULL && bankAccountData2->bankAccount == validationEntry->bankAccount2) return false;
-        if (startTime == validationEntry->validationTimestamp) break;
     }
     return true;
 }
@@ -109,56 +109,62 @@ bool submit_validation_request(ValidationRequest *validationRequest, GAsyncQueue
 
 void validate_transaction(ValidationList *validationList, GAsyncQueue *validationAsyncQueue,
                           GAsyncQueue *writeBackAsyncQueue) {
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "EndlessLoop"
+    while (true) {
+        ValidationResult validationResult = *((ValidationResult *) g_async_queue_pop(validationAsyncQueue));
+        uint64_t validationListIndex;
 
-    ValidationResult validationResult = *((ValidationResult *) g_async_queue_pop(validationAsyncQueue));
-    uint64_t validationListIndex;
+        read_lock(validationList);
+        bool isValidated = read_validate(validationResult.validationRequest->bankAccountData1,
+                                         validationResult.validationRequest->bankAccountData2,
+                                         validationResult.validationRequest->startTime) &&
+                           serialisability_validate(validationResult.validationRequest->bankAccountData1,
+                                                    validationResult.validationRequest->bankAccountData2,
+                                                    validationResult.validationRequest->startTime, validationList);
+        read_unlock(validationList);
 
-    read_lock(validationList);
-    bool isValidated = read_validate(validationResult.validationRequest->bankAccountData1,
-                                     validationResult.validationRequest->bankAccountData2,
-                                     validationResult.validationRequest->startTime) &&
-                       serialisability_validate(validationResult.validationRequest->bankAccountData1,
-                                                validationResult.validationRequest->bankAccountData2,
-                                                validationResult.validationRequest->startTime, validationList);
-    read_unlock(validationList);
+        if (isValidated) {
+            ValidationEntry validationEntry = {.transaction = validationResult.validationRequest->transaction,
+                    .bankAccount1 = (validationResult.validationRequest->bankAccountData1 != NULL &&
+                                     validationResult.validationRequest->isBankAccount1Updated)
+                                    ? validationResult.validationRequest->bankAccountData1->bankAccount
+                                    : NULL,
+                    .bankAccount2 = (validationResult.validationRequest->bankAccountData2 != NULL &&
+                                     validationResult.validationRequest->isBankAccount2Updated)
+                                    ? validationResult.validationRequest->bankAccountData2->bankAccount
+                                    : NULL,
+                    .hasWrittenBack = false};
+            write_lock(validationList);
+            validationEntry.validationTimestamp = ++(validationList->timeStamp);
+            validationListIndex = validationList->arrayList->len;
+            g_array_append_val(validationList->arrayList, validationEntry);
+            write_unlock(validationList);
 
-    if (isValidated) {
-        ValidationEntry validationEntry = {.transaction = validationResult.validationRequest->transaction,
-                .bankAccount1 = (validationResult.validationRequest->bankAccountData1 != NULL &&
-                                 validationResult.validationRequest->isBankAccount1Updated)
-                                ? validationResult.validationRequest->bankAccountData1->bankAccount
-                                : NULL,
-                .bankAccount2 = (validationResult.validationRequest->bankAccountData2 != NULL &&
-                                 validationResult.validationRequest->isBankAccount2Updated)
-                                ? validationResult.validationRequest->bankAccountData2->bankAccount
-                                : NULL,
-                .hasWrittenBack = false};
-        write_lock(validationList);
-        validationEntry.validationTimestamp = ++(validationList->timeStamp);
-        validationListIndex = validationList->arrayList->len;
-        g_array_append_val(validationList->arrayList, validationEntry);
-        write_unlock(validationList);
+            WriteBackEntry writeBackEntry = {.bankAccountData1 = validationResult.validationRequest->isBankAccount1Updated
+                                                                 ? validationResult.validationRequest->bankAccountData1
+                                                                 : NULL,
+                    .bankAccountData2 = validationResult.validationRequest->isBankAccount2Updated
+                                        ? validationResult.validationRequest->bankAccountData2 : NULL,
+                    .validationListIndex = validationListIndex};
+            g_async_queue_push(writeBackAsyncQueue, &writeBackEntry);
+        } else {
+            free(validationResult.validationRequest->bankAccountData1);
+            free(validationResult.validationRequest->bankAccountData2);
+        }
 
-        WriteBackEntry writeBackEntry = {.bankAccountData1 = validationResult.validationRequest->isBankAccount1Updated
-                                                             ? validationResult.validationRequest->bankAccountData1
-                                                             : NULL,
-                .bankAccountData2 = validationResult.validationRequest->isBankAccount2Updated
-                                    ? validationResult.validationRequest->bankAccountData2 : NULL,
-                .validationListIndex = validationListIndex};
-        g_async_queue_push(writeBackAsyncQueue, &writeBackEntry);
-    } else {
-        free(validationResult.validationRequest->bankAccountData1);
-        free(validationResult.validationRequest->bankAccountData2);
+        pthread_mutex_lock(validationResult.resultMutex);
+        *(validationResult.result) = isValidated;
+        pthread_mutex_unlock(validationResult.resultMutex);
+        pthread_cond_signal(validationResult.resultConditionVariable);
     }
-
-    pthread_mutex_lock(validationResult.resultMutex);
-    *(validationResult.result) = isValidated;
-    pthread_mutex_unlock(validationResult.resultMutex);
-    pthread_cond_signal(validationResult.resultConditionVariable);
+#pragma clang diagnostic pop
 }
 
-void write_back(GAsyncQueue *writeBackAsyncQueue, ValidationList *validationList, const bool *isStopped) {
-    while (!(*isStopped)) {
+void write_back_transaction(ValidationList *validationList, GAsyncQueue *writeBackAsyncQueue) {
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "EndlessLoop"
+    while (true) {
         WriteBackEntry writeBackEntry = *((WriteBackEntry *) g_async_queue_pop(writeBackAsyncQueue));
 
         read_lock(validationList);
@@ -189,4 +195,5 @@ void write_back(GAsyncQueue *writeBackAsyncQueue, ValidationList *validationList
         free(writeBackEntry.bankAccountData1);
         free(writeBackEntry.bankAccountData2);
     }
+#pragma clang diagnostic pop
 }

@@ -2,7 +2,7 @@
 #include "operation.h"
 #include "occ.h"
 
-bool withdraw_account(BankAccount *bankAccount, uint64_t amount, OCCContainer *occContainer, uint8_t numberTries) {
+bool withdraw_account(BankAccount *bankAccount, uint64_t amount, OCCContainer *occContainer, uint16_t numberTries) {
     while (numberTries > 0) {
         uint64_t startTime = get_start_time(&(occContainer->validationList));
         BankAccountData *bankAccountData = get_shadow_copy(bankAccount);
@@ -19,7 +19,7 @@ bool withdraw_account(BankAccount *bankAccount, uint64_t amount, OCCContainer *o
     return false;
 }
 
-bool deposit_account(BankAccount *bankAccount, uint64_t amount, OCCContainer *occContainer, uint8_t numberTries) {
+bool deposit_account(BankAccount *bankAccount, uint64_t amount, OCCContainer *occContainer, uint16_t numberTries) {
     while (numberTries > 0) {
         uint64_t startTime = get_start_time(&(occContainer->validationList));
         BankAccountData *bankAccountData = get_shadow_copy(bankAccount);
@@ -37,7 +37,7 @@ bool deposit_account(BankAccount *bankAccount, uint64_t amount, OCCContainer *oc
 }
 
 bool pay_account(BankAccount *bankAccountFrom, BankAccount *bankAccountTo, uint64_t amount, OCCContainer *occContainer,
-                 uint8_t numberTries) {
+                 uint16_t numberTries) {
     while (numberTries > 0) {
         uint64_t startTime = get_start_time(&(occContainer->validationList));
         BankAccountData *bankAccountDataFrom = get_shadow_copy(bankAccountFrom);

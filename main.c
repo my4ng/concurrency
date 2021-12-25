@@ -1,75 +1,87 @@
 #include <stdio.h>
 #include <pthread.h>
-#include <stdatomic.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <glib.h>
-#include <stdbool.h>
+#include <unistd.h>
 #include "transaction.h"
 
-/*
-int insert_transaction(BankAccount *bankAccount, Transaction *transaction) {
-    pthread_mutex_lock(&(bankAccount->transactionMutex));
-    Transaction *previousTransaction = bankAccount->lastTransaction;
-    Transaction *afterTransaction = NULL;
-    while (previousTransaction != transaction->previousTransaction && previousTransaction != NULL) {
-        afterTransaction = previousTransaction;
-        previousTransaction = previousTransaction->previousTransaction;
+OCCContainer occContainer;
+BankAccount *bankAccount;
+BankAccount *bankAccount1;
+
+void *withdraw_100_times() {
+    for (int i = 0; i < 10; i++) {
+        withdraw_account(bankAccount, 50000, &occContainer, 10);
     }
-    if (afterTransaction != NULL) afterTransaction->previousTransaction = transaction;
-    else bankAccount->lastTransaction = transaction;
-    transaction->previousTransaction = previousTransaction;
-    pthread_mutex_unlock(&(bankAccount->transactionMutex));
-    return 0;
+    printf("Withdrawn 100 times\n");
+    return NULL;
 }
 
-int withdraw_account(BankAccount *bankAccount, uint64_t amount) {
-    Transaction *transaction = malloc(sizeof(Transaction));
-    if (transaction == NULL) return 1;
-
-    Transaction *tempTransaction = NULL;
-    Transaction **previousTransaction = &tempTransaction;
-    *transaction = (Transaction) {.type = withdraw, .amount = amount, .transactingAccount = 0};
-
-    transaction->statusCode = (debit_account(bankAccount, amount, previousTransaction) == 0 ? success : failure);
-    transaction->previousTransaction = *previousTransaction;
-    return insert_transaction(bankAccount, transaction);
+void *deposit_100_times() {
+    for (int i = 0; i < 100; i++) {
+        deposit_account(bankAccount, 10, &occContainer, 100);
+    }
+    printf("Deposited 100 times\n");
+    return NULL;
 }
 
-int deposit_account(BankAccount *bankAccount, uint64_t amount) {
-    Transaction *transaction = malloc(sizeof(Transaction));
-    if (transaction == NULL) return 1;
-
-    Transaction *tempTransaction = NULL;
-    Transaction **previousTransaction = &tempTransaction;
-    *transaction = (Transaction) {.type = deposit, .amount = amount, .transactingAccount = 0};
-
-    transaction->statusCode = (credit_account(bankAccount, amount, previousTransaction) == 0 ? success : failure);
-    transaction->previousTransaction = *previousTransaction;
-    return insert_transaction(bankAccount, transaction);
+void *pay_100_times() {
+    for (int i = 0; i < 100; i++) {
+        pay_account(bankAccount, bankAccount1, 10, &occContainer, 100);
+    }
+    printf("Paid 100 times\n");
+    return NULL;
 }
 
-int pay_account(BankAccount *bankAccountFrom, BankAccount *bankAccountTo, uint64_t amount) {
-
+void *validate() {
+    validate_transaction(&occContainer.validationList, occContainer.validationAsyncQueue, occContainer.writeBackAsyncQueue);
+    return NULL;
 }
-*/
+
+void *write_back() {
+    write_back_transaction(&occContainer.validationList, occContainer.writeBackAsyncQueue);
+    return NULL;
+}
+
 
 int main(void) {
 
-    BankAccount *ba = init_account(0, 1000000, 0);
-    BankAccount *ba1 = init_account(1, 1000, 0);
+    uint16_t k = -10;
+    k += 10;
+    printf("%d", k);
 
-    OCCContainer occContainer;
+    /*
+    printf("BankAccount: %ld\n", sizeof(WriteBackEntry));
+
+    bankAccount = init_account(0, 1000000, 0);
+    bankAccount1 = init_account(1, 1000, 0);
+
     occContainer.validationList = validationList_default;
     occContainer.validationList.arrayList = get_new_arrayList();
+    occContainer.validationAsyncQueue = get_new_async_queue();
     occContainer.writeBackAsyncQueue = get_new_async_queue();
 
-    pay_account(ba, ba1, 1000, &occContainer, 10);
-    pay_account(ba1, ba, 3000, &occContainer, 10);
+    pthread_t transactionThread1, transactionThread2, transactionThread3, validationThread, writeBackThread;
+    int tt1, tt2, tt3, vt, wt;
 
-    free(ba);
-    free(ba1);
+    tt1 = pthread_create(&transactionThread1, NULL, withdraw_100_times, NULL);
+    tt2 = pthread_create(&transactionThread2, NULL, deposit_100_times, NULL);
+    tt3 = pthread_create(&transactionThread3, NULL, pay_100_times, NULL);
+    vt = pthread_create(&validationThread, NULL, validate, NULL);
+    wt = pthread_create(&writeBackThread, NULL, write_back, NULL);
 
+    if (tt1 != 0 || tt2 != 0 || tt3 != 0 || vt != 0 || wt != 0) exit(1);
+
+    pthread_join(transactionThread1, NULL);
+    pthread_join(transactionThread2, NULL);
+    pthread_join(transactionThread3, NULL);
+
+    // pray to God that everything has finished before then!
+    sleep(3);
+    printf("BankAccount: %ld\n", bankAccount->balance);
+    printf("BankAccount1: %ld\n", bankAccount1->balance);
+
+    free_account(bankAccount);
+    free_account(bankAccount1);
+    */
 
     return 0;
 }
