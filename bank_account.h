@@ -20,7 +20,7 @@ typedef struct BankAccount_t {
     uint64_t id;
     int64_t balance;
     uint64_t writeBackTimestamp;
-    pthread_mutex_t writeBackMutex;
+    pthread_mutex_t mutex;
 } BankAccount;
 
 BankAccount *init_account(uint64_t id, int64_t balance, uint64_t writeBackTimestamp);

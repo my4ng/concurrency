@@ -6,6 +6,7 @@
 #include <string.h>
 
 // potential performance improvement with blockMultiplier being a power of 2 (for modulo)
+// TODO: add cacheline alignment to reduce the number of cachelines needed to load/store an element
 
 typedef struct AdditiveList_t {
     uint16_t elementSize;

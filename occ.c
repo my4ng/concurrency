@@ -1,13 +1,12 @@
-#include <malloc.h>
 #include <semaphore.h>
 #include "occ.h"
 
-ValidationList validationList_default = {.writeMutex = PTHREAD_MUTEX_INITIALIZER, .readMutex = PTHREAD_MUTEX_INITIALIZER,
-        .turnMutex = PTHREAD_MUTEX_INITIALIZER, .numberReaders = 0, .timeStamp = 0};
-
-GArray *get_new_arrayList(void) { return g_array_new(false, false, sizeof(ValidationEntry)); }
-
-GAsyncQueue *get_new_async_queue(void) { return g_async_queue_new(); }
+ValidationList validationList_default = {
+        .writeMutex = PTHREAD_MUTEX_INITIALIZER,
+        .readMutex = PTHREAD_MUTEX_INITIALIZER,
+        .turnMutex = PTHREAD_MUTEX_INITIALIZER,
+        .numberReaders = 0
+};
 
 void read_lock(ValidationList *validationList) {
     // turn mutex
@@ -39,9 +38,8 @@ void write_unlock(ValidationList *validationList) {
     pthread_mutex_unlock(&(validationList->writeMutex));
 }
 
-BankAccountData *get_shadow_copy(BankAccount *bankAccount) {
-    pthread_mutex_lock(&(bankAccount->writeBackMutex));
-    BankAccountData *bankAccountData = malloc(sizeof(BankAccountData));
+void get_shadow_copy(BankAccount *bankAccount, BankAccountData *bankAccountData) {
+    pthread_mutex_lock(&(bankAccount->mutex));
     *bankAccountData = (BankAccountData)
             {
                     .bankAccount = bankAccount,
@@ -49,26 +47,22 @@ BankAccountData *get_shadow_copy(BankAccount *bankAccount) {
                     .id = bankAccount->id,
                     .balance = bankAccount->balance
             };
-    pthread_mutex_unlock(&(bankAccount->writeBackMutex));
-    return bankAccountData;
+    pthread_mutex_unlock(&(bankAccount->mutex));
 }
 
-uint64_t get_start_time(ValidationList *validationList) {
-    bool isEntryFound = false;
-    ValidationEntry validationEntry;
+// Always use 1 or greater as the additiveList offset to distinguish between 1st entry verified (1 or greater) or not (0 or greater)
 
+uint64_t get_start_time(ValidationList *validationList) {
     read_lock(validationList);
-    for (int64_t i = (int64_t) validationList->arrayList->len - 1; i >= 0; i--) {
-        if (g_array_index(validationList->arrayList, ValidationEntry, i).hasWrittenBack == true) {
-            validationEntry = g_array_index(validationList->arrayList, ValidationEntry, i);
-            isEntryFound = true;
+    uint64_t startTime;
+    for (startTime = validationList->additiveList.offset + validationList->additiveList.listLength - 1;
+         startTime >= validationList->additiveList.offset; startTime--) {
+        if (((ValidationEntry *) additive_list_get(&validationList->additiveList, startTime))->hasWrittenBack) {
             break;
         }
     }
     read_unlock(validationList);
-
-    if (isEntryFound) return validationEntry.validationTimestamp;
-    else return 0;
+    return startTime;
 }
 
 bool read_validate(BankAccountData *bankAccountData1, BankAccountData *bankAccountData2, uint64_t startTime) {
@@ -81,24 +75,25 @@ bool serialisability_validate(BankAccountData *bankAccountData1, BankAccountData
                               ValidationList *validationList) {
     ValidationEntry *validationEntry = NULL;
 
-    for (int64_t i = (int64_t) validationList->arrayList->len - 1; i >= 0; i--) {
-        validationEntry = &g_array_index(validationList->arrayList, ValidationEntry, i);
-        if (startTime == validationEntry->validationTimestamp) break;
+    for (uint64_t offsetIndex = validationList->additiveList.offset + validationList->additiveList.listLength - 1;
+         offsetIndex >= validationList->additiveList.offset; offsetIndex--) {
+        validationEntry = additive_list_get(&validationList->additiveList, offsetIndex);
+        if (startTime == offsetIndex) break;
         if (bankAccountData1 != NULL && bankAccountData1->bankAccount == validationEntry->bankAccount1) return false;
         if (bankAccountData2 != NULL && bankAccountData2->bankAccount == validationEntry->bankAccount2) return false;
     }
     return true;
 }
 
-bool submit_validation_request(ValidationRequest *validationRequest, GAsyncQueue *validationAsyncQueue) {
+bool submit_validation_request(ValidationRequest *validationRequest, CircularQueue *validationCircularQueue) {
     bool result;
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_cond_t conditionVariable = PTHREAD_COND_INITIALIZER;
-    ValidationResult validationResult = {.validationRequest = validationRequest, .result = &result,
+    ValidationWriteBackResult validationResult = {.validationRequest = validationRequest, .result = &result,
             .resultMutex = &mutex, .resultConditionVariable = &conditionVariable};
 
     pthread_mutex_lock(&mutex);
-    g_async_queue_push(validationAsyncQueue, &validationResult);
+    circular_queue_push(validationCircularQueue, &validationResult);
     pthread_cond_wait(&conditionVariable, &mutex);
     pthread_mutex_unlock(&mutex);
 
@@ -107,93 +102,89 @@ bool submit_validation_request(ValidationRequest *validationRequest, GAsyncQueue
     return result;
 }
 
-void validate_transaction(ValidationList *validationList, GAsyncQueue *validationAsyncQueue,
-                          GAsyncQueue *writeBackAsyncQueue) {
+void validate_transaction(ValidationList *validationList, CircularQueue *validationCircularQueue,
+                          CircularQueue *writeBackCircularQueue) {
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "EndlessLoop"
     while (true) {
-        ValidationResult validationResult = *((ValidationResult *) g_async_queue_pop(validationAsyncQueue));
-        uint64_t validationListIndex;
+        ValidationWriteBackResult validationWriteBackResult;
+        circular_queue_pop(validationCircularQueue, &validationWriteBackResult);
 
         read_lock(validationList);
-        bool isValidated = read_validate(validationResult.validationRequest->bankAccountData1,
-                                         validationResult.validationRequest->bankAccountData2,
-                                         validationResult.validationRequest->startTime) &&
-                           serialisability_validate(validationResult.validationRequest->bankAccountData1,
-                                                    validationResult.validationRequest->bankAccountData2,
-                                                    validationResult.validationRequest->startTime, validationList);
+        bool isValidated = read_validate(validationWriteBackResult.validationRequest->bankAccountData1,
+                                         validationWriteBackResult.validationRequest->bankAccountData2,
+                                         validationWriteBackResult.validationRequest->startTime) &&
+                           serialisability_validate(validationWriteBackResult.validationRequest->bankAccountData1,
+                                                    validationWriteBackResult.validationRequest->bankAccountData2,
+                                                    validationWriteBackResult.validationRequest->startTime,
+                                                    validationList);
         read_unlock(validationList);
 
         if (isValidated) {
-            ValidationEntry validationEntry = {.transaction = validationResult.validationRequest->transaction,
-                    .bankAccount1 = (validationResult.validationRequest->bankAccountData1 != NULL &&
-                                     validationResult.validationRequest->isBankAccount1Updated)
-                                    ? validationResult.validationRequest->bankAccountData1->bankAccount
+            ValidationEntry validationEntry = {
+                    .bankAccount1 = (validationWriteBackResult.validationRequest->bankAccountData1 != NULL &&
+                                     validationWriteBackResult.validationRequest->isBankAccount1Updated)
+                                    ? validationWriteBackResult.validationRequest->bankAccountData1->bankAccount
                                     : NULL,
-                    .bankAccount2 = (validationResult.validationRequest->bankAccountData2 != NULL &&
-                                     validationResult.validationRequest->isBankAccount2Updated)
-                                    ? validationResult.validationRequest->bankAccountData2->bankAccount
+                    .bankAccount2 = (validationWriteBackResult.validationRequest->bankAccountData2 != NULL &&
+                                     validationWriteBackResult.validationRequest->isBankAccount2Updated)
+                                    ? validationWriteBackResult.validationRequest->bankAccountData2->bankAccount
                                     : NULL,
                     .hasWrittenBack = false};
             write_lock(validationList);
-            validationEntry.validationTimestamp = ++(validationList->timeStamp);
-            validationListIndex = validationList->arrayList->len;
-            g_array_append_val(validationList->arrayList, validationEntry);
+            validationWriteBackResult.validationTimestamp = validationList->additiveList.offset +
+                                                            validationList->additiveList.listLength;
+            additive_list_add(&validationList->additiveList, &validationEntry);
             write_unlock(validationList);
 
-            WriteBackEntry writeBackEntry = {.bankAccountData1 = validationResult.validationRequest->isBankAccount1Updated
-                                                                 ? validationResult.validationRequest->bankAccountData1
-                                                                 : NULL,
-                    .bankAccountData2 = validationResult.validationRequest->isBankAccount2Updated
-                                        ? validationResult.validationRequest->bankAccountData2 : NULL,
-                    .validationListIndex = validationListIndex};
-            g_async_queue_push(writeBackAsyncQueue, &writeBackEntry);
+            circular_queue_push(writeBackCircularQueue, &validationWriteBackResult);
         } else {
-            free(validationResult.validationRequest->bankAccountData1);
-            free(validationResult.validationRequest->bankAccountData2);
+            pthread_mutex_lock(validationWriteBackResult.resultMutex);
+            *(validationWriteBackResult.result) = false;
+            pthread_mutex_unlock(validationWriteBackResult.resultMutex);
+            pthread_cond_signal(validationWriteBackResult.resultConditionVariable);
         }
-
-        pthread_mutex_lock(validationResult.resultMutex);
-        *(validationResult.result) = isValidated;
-        pthread_mutex_unlock(validationResult.resultMutex);
-        pthread_cond_signal(validationResult.resultConditionVariable);
     }
 #pragma clang diagnostic pop
 }
 
-void write_back_transaction(ValidationList *validationList, GAsyncQueue *writeBackAsyncQueue) {
+void write_back_transaction(ValidationList *validationList, CircularQueue *writeBackCircularQueue) {
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "EndlessLoop"
     while (true) {
-        WriteBackEntry writeBackEntry = *((WriteBackEntry *) g_async_queue_pop(writeBackAsyncQueue));
+        ValidationWriteBackResult validationWriteBackResult;
+        circular_queue_pop(writeBackCircularQueue, &validationWriteBackResult);
 
-        read_lock(validationList);
-        uint64_t validationTimestamp = g_array_index(validationList->arrayList, ValidationEntry,
-                                                     writeBackEntry.validationListIndex).validationTimestamp;
-        read_unlock(validationList);
-
-        if (writeBackEntry.bankAccountData1 != NULL) {
-            pthread_mutex_lock(&(writeBackEntry.bankAccountData1->bankAccount->writeBackMutex));
+        if (validationWriteBackResult.validationRequest->bankAccountData1 != NULL &&
+            validationWriteBackResult.validationRequest->isBankAccount1Updated) {
+            pthread_mutex_lock(&(validationWriteBackResult.validationRequest->bankAccountData1->bankAccount->mutex));
             // TODO: Add more changes than balance
-            writeBackEntry.bankAccountData1->bankAccount->balance = writeBackEntry.bankAccountData1->balance;
-            writeBackEntry.bankAccountData1->bankAccount->writeBackTimestamp = validationTimestamp;
-            pthread_mutex_unlock(&(writeBackEntry.bankAccountData1->bankAccount->writeBackMutex));
+            validationWriteBackResult.validationRequest->bankAccountData1->bankAccount->balance =
+                    validationWriteBackResult.validationRequest->bankAccountData1->balance;
+            validationWriteBackResult.validationRequest->bankAccountData1->bankAccount->writeBackTimestamp =
+                    validationWriteBackResult.validationTimestamp;
+            pthread_mutex_unlock(&(validationWriteBackResult.validationRequest->bankAccountData1->bankAccount->mutex));
         }
-        if (writeBackEntry.bankAccountData2 != NULL) {
-            pthread_mutex_lock(&(writeBackEntry.bankAccountData2->bankAccount->writeBackMutex));
+        if (validationWriteBackResult.validationRequest->bankAccountData2 != NULL &&
+            validationWriteBackResult.validationRequest->isBankAccount2Updated) {
+            pthread_mutex_lock(&(validationWriteBackResult.validationRequest->bankAccountData2->bankAccount->mutex));
             // TODO: Add more changes than balance
-            writeBackEntry.bankAccountData2->bankAccount->balance = writeBackEntry.bankAccountData2->balance;
-            writeBackEntry.bankAccountData2->bankAccount->writeBackTimestamp = validationTimestamp;
-            pthread_mutex_unlock(&(writeBackEntry.bankAccountData2->bankAccount->writeBackMutex));
+            validationWriteBackResult.validationRequest->bankAccountData2->bankAccount->balance =
+                    validationWriteBackResult.validationRequest->bankAccountData2->balance;
+            validationWriteBackResult.validationRequest->bankAccountData2->bankAccount->writeBackTimestamp =
+                    validationWriteBackResult.validationTimestamp;
+            pthread_mutex_unlock(&(validationWriteBackResult.validationRequest->bankAccountData2->bankAccount->mutex));
         }
 
         write_lock(validationList);
-        g_array_index(validationList->arrayList, ValidationEntry,
-                      writeBackEntry.validationListIndex).hasWrittenBack = true;
+        ((ValidationEntry *) additive_list_get(&validationList->additiveList,
+                                               validationWriteBackResult.validationTimestamp))->hasWrittenBack = true;
         write_unlock(validationList);
 
-        free(writeBackEntry.bankAccountData1);
-        free(writeBackEntry.bankAccountData2);
+        pthread_mutex_lock(validationWriteBackResult.resultMutex);
+        *(validationWriteBackResult.result) = true;
+        pthread_mutex_unlock(validationWriteBackResult.resultMutex);
+        pthread_cond_signal(validationWriteBackResult.resultConditionVariable);
     }
 #pragma clang diagnostic pop
 }

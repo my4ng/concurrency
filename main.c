@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include "transaction.h"
 #include "additive_list.h"
 #include "circular_queue.h"
@@ -10,8 +11,8 @@ BankAccount *bankAccount;
 BankAccount *bankAccount1;
 
 void *withdraw_100_times() {
-    for (int i = 0; i < 10; i++) {
-        withdraw_account(bankAccount, 50000, &occContainer, 10);
+    for (int i = 0; i < 100; i++) {
+        withdraw_account(bankAccount, 10, &occContainer, 1024);
     }
     printf("Withdrawn 100 times\n");
     return NULL;
@@ -19,7 +20,7 @@ void *withdraw_100_times() {
 
 void *deposit_100_times() {
     for (int i = 0; i < 100; i++) {
-        deposit_account(bankAccount, 10, &occContainer, 100);
+        deposit_account(bankAccount, 10, &occContainer, 1024);
     }
     printf("Deposited 100 times\n");
     return NULL;
@@ -27,35 +28,34 @@ void *deposit_100_times() {
 
 void *pay_100_times() {
     for (int i = 0; i < 100; i++) {
-        pay_account(bankAccount, bankAccount1, 10, &occContainer, 100);
+        pay_account(bankAccount, bankAccount1, 10, &occContainer, 1024);
     }
     printf("Paid 100 times\n");
     return NULL;
 }
 
 void *validate() {
-    validate_transaction(&occContainer.validationList, occContainer.validationAsyncQueue, occContainer.writeBackAsyncQueue);
+    validate_transaction(&occContainer.validationList, &occContainer.validationCircularQueue, &occContainer.writeBackCircularQueue);
     return NULL;
 }
 
 void *write_back() {
-    write_back_transaction(&occContainer.validationList, occContainer.writeBackAsyncQueue);
+    write_back_transaction(&occContainer.validationList, &occContainer.writeBackCircularQueue);
     return NULL;
 }
 
 
 int main(void) {
 
-    /*
-    printf("BankAccount: %ld\n", sizeof(WriteBackEntry));
+    printf("%lu\n", sizeof(ValidationEntry));
 
     bankAccount = init_account(0, 1000000, 0);
     bankAccount1 = init_account(1, 1000, 0);
 
     occContainer.validationList = validationList_default;
-    occContainer.validationList.arrayList = get_new_arrayList();
-    occContainer.validationAsyncQueue = get_new_async_queue();
-    occContainer.writeBackAsyncQueue = get_new_async_queue();
+    additive_list_init(&occContainer.validationList.additiveList, sizeof(ValidationEntry), 1024, 64, 1);
+    circular_queue_init(&occContainer.validationCircularQueue, sizeof(ValidationWriteBackResult), 1024);
+    circular_queue_init(&occContainer.writeBackCircularQueue, sizeof(ValidationWriteBackResult), 1024);
 
     pthread_t transactionThread1, transactionThread2, transactionThread3, validationThread, writeBackThread;
     int tt1, tt2, tt3, vt, wt;
@@ -79,8 +79,9 @@ int main(void) {
 
     free_account(bankAccount);
     free_account(bankAccount1);
-    */
 
+
+    /*
     AdditiveList additiveList;
     additive_list_init(&additiveList, sizeof(int), 16, 16, 0);
 
@@ -114,6 +115,7 @@ int main(void) {
 
 
     circular_queue_free(&circularQueue);
+     */
 
     return 0;
 }
